@@ -27,74 +27,77 @@ class Ship:
     def __init__(self, coordinates: List[Tuple[int, int]]):
         self.coordinates = coordinates
         self._check_ship_coordinates()
-        
+
         self._un_hit_coordinates: FrozenSet[Tuple[int, int]] = {tup for tup in self.coordinates}
-    
+
     @property
     def is_destroyed(self) -> bool:
         return len(self._un_hit_coordinates) == 0
-    
+
     @property
     def num_hits(self) -> int:
         # return len(self.coordinates) - len(self._un_hit_coordinates)
         return len(self.hit_cells)
-    
+
     @property
     def hit_cells(self) -> List[Tuple[int, int]]:
         return list(set(self.coordinates) - self._un_hit_coordinates)
-    
+
     @property
     def un_hit_cells(self) -> List[Tuple[int, int]]:
         return list(self._un_hit_coordinates)
-        
+
     def hit_ship(self, row, col) -> None:
         if self.is_destroyed:
             raise InvalidHitMoveException("The ship is already destroyed.")
         if (row, col) not in self._un_hit_coordinates:
             raise InvalidHitMoveException(f"{(row, col)} is an invalid hit move coordinate.")
-        
+
         self._un_hit_coordinates.discard((row, col))
-    
+
     def is_ship_overlap(self, other) -> bool:
         if type(other) is not self.__class__:
             raise ValueError(f"The given ship is not of type `{self.__class__.__name__}`")
-        
+
         return any([tup in other.coordinates for tup in self.coordinates])
-    
+
     def _check_ship_coordinates(self) -> None:
         """Check if the ship's coordinates are valid."""
         rows = sorted([tup[0] for tup in self.coordinates])
         columns = sorted([tup[1] for tup in self.coordinates])
-        
+
         # Check if there are given coordinates for ship's position
         if len(self.coordinates) < 1:
             raise InvalidShipCoordinateException("Cannot instantiate a ship without coordinates for it's position.")
-        
+
         # Check if any of rows or columns are less than 0
         if any(row < 0 for row in rows):
             raise InvalidShipCoordinateException("One of the ship's coordinates have negative row value.")
         if any(col < 0 for col in columns):
             raise InvalidShipCoordinateException("One of the ship's coordinates have negative column value.")
-        
+
         if len(self.coordinates) > 1:
             # Check if neither the rows or columns have constant value
             is_row_constant = not any([rows[j] != rows[j + 1] for j in range(len(rows) - 1)])
             is_col_constant = not any([columns[i] != columns[i + 1] for i in range(len(columns) - 1)])
-            
-            if any([rows[j] != rows[j + 1] for j in range(len(rows) - 1)]) and any([columns[i] != columns[i + 1] for i in range(len(columns) - 1)]):
+
+            if any([rows[j] != rows[j + 1] for j in range(len(rows) - 1)]) and any(
+                    [columns[i] != columns[i + 1] for i in range(len(columns) - 1)]):
                 raise InvalidShipCoordinateException("Neither the rows or columns have constant value.")
-            
+
             # Check if there's a duplicate tuple in the coordindates
             if len(self.coordinates) != len(set(self.coordinates)):
                 raise InvalidShipCoordinateException("There is a duplicate in one of the ship's coordinates.")
-            
+
             # Check if the non-constant row/column is in consecutive order
             if is_row_constant:
                 # The columns must be consecutive
-                assert all([columns[idx] + 1 == columns[idx + 1] for idx in range(len(columns) - 1)]), "The columns are not in consecutive order."
+                assert all([columns[idx] + 1 == columns[idx + 1] for idx in
+                            range(len(columns) - 1)]), "The columns are not in consecutive order."
             if is_col_constant:
                 # The rows must be consecutive
-                assert all([rows[idx] + 1 == rows[idx + 1] for idx in range(len(rows) - 1)]), "The rows are not in consecutive order."
+                assert all([rows[idx] + 1 == rows[idx + 1] for idx in
+                            range(len(rows) - 1)]), "The rows are not in consecutive order."
 
 
 def generate_row_ship_cells(board_size: int):
@@ -125,7 +128,7 @@ def generate_random_column_ship(board_size: int, ship_length: int) -> Ship:
 
 def generate_random_ships_arrangements(board_size: int) -> List[Ship]:
     ships = []
-    
+
     i = board_size
     while i > 0:
         row_or_col = random.choice(['row', 'column'])
@@ -133,13 +136,13 @@ def generate_random_ships_arrangements(board_size: int) -> List[Ship]:
             ship = generate_random_row_ship(board_size, i)
         else:
             ship = generate_random_column_ship(board_size, i)
-        
+
         if any(ship.is_ship_overlap(s) for s in ships):
             continue
-        
+
         ships.append(ship)
         i -= 1
-    
+
     return ships
 
 
@@ -161,82 +164,83 @@ class BoardStatesEnemyPOV:
 
 
 class Board:
-    def __init__(self, 
-                 board_size: int, 
+    def __init__(self,
+                 board_size: int,
                  empty_label=" "):
-        
+
         if board_size < 5 or board_size > 15:
             raise BoardException("Invalid given board size. Board size must be 5 to 15.")
-        
+
         self.board_size = board_size
         self.num_ship = self.board_size - 1  # num_ships = board_size - 1
         self._empty_label = empty_label
-        
+
         self._board = [[self._empty_label for _ in range(self.board_size)] for _ in range(self.board_size)]
-        
+
         # Instantiate Labels for Player and Enemy POVs
         self._player_pov_labels = BoardStatesPlayerPOV()
         self._enemy_pov_labels = BoardStatesEnemyPOV()
-        
+
         self.ships: List[Ship] = []  # List of Ships
-        
+
         # Keep track of all enemy actions/moves for "Missed" and "No Move". 
         # Hit can be obtained from `hit_cells` property.
         self._enemy_moves = {
             "hit": [],
             "missed": []
         }
-    
+
     @property
     def dead_ships(self) -> List[Ship]:
         return [ship for ship in self.ships if ship.is_destroyed]
-    
+
     @property
     def hit_cells(self) -> List[Tuple[int, int]]:
         return [cell for ship in self.ships for cell in ship.hit_cells]
-    
+
     @property
     def un_hit_cells(self) -> List[Tuple[int, int]]:
         return [cell for ship in self.ships for cell in ship.un_hit_cells]
-    
+
     @property
     def occupied_cells(self) -> List[Tuple[int, int]]:
         return [cell for ship in self.ships for cell in ship.coordinates]
-    
+
     @property
     def is_player_lost(self) -> bool:
         return all(ship.is_destroyed for ship in self.ships)
-    
+
     @property
     def valid_moves(self) -> List[Tuple[int, int]]:
         all_cells_generator = ((i, j) for i in range(self.board_size) for j in range(self.board_size))
-        return [cell for cell in all_cells_generator if cell not in self._enemy_moves["hit"] + self._enemy_moves["missed"]]
-    
+        return [cell for cell in all_cells_generator if
+                cell not in self._enemy_moves["hit"] + self._enemy_moves["missed"]]
+
     def generate_valid_moves(self):
         board = self.get_board_for_enemy()
         for i in range(self.board_size):
             for j in range(self.board_size):
                 if board[i][j] == self._enemy_pov_labels.no_move:
                     yield board[i][j]
-    
+
     def get_board_for_player(self) -> List[List[str]]:
         """Gets the Board States from Player's POV"""
         # Initialize an empty board.
         board = self._create_empty_board()
-        
+
         # Fill with Ships' Positions
         for ship in self.ships:
             for row, col in ship.coordinates:
                 board[row][col] = self._player_pov_labels.ship
-        
+
         # Fill with Hit
-        for (row, col) in  self._enemy_moves["hit"]:
+        for (row, col) in self._enemy_moves["hit"]:
             board[row][col] = self._player_pov_labels.hit
-        
+
         # Fill with Missed
-        for (row, col) in  self._enemy_moves["missed"]:
+        for (row, col) in self._enemy_moves["missed"]:
             board[row][col] = self._player_pov_labels.missed
-        
+
         # Fill with Unoccupied
         for row in range(self.board_size):
             for col in range(self.board_size):
@@ -249,21 +253,21 @@ class Board:
         """Gets the Board States from Enemy's POV"""
         # Initialize an empty board.
         board = self._create_empty_board()
-        
+
         # Fill with Hit
-        for row, col in  self._enemy_moves["hit"]:
+        for row, col in self._enemy_moves["hit"]:
             board[row][col] = self._enemy_pov_labels.hit
-        
+
         # Fill with Missed
-        for row, col in  self._enemy_moves["missed"]:
+        for row, col in self._enemy_moves["missed"]:
             board[row][col] = self._enemy_pov_labels.missed
-        
+
         # Fill with No Moves
         for row in range(self.board_size):
             for col in range(self.board_size):
                 if board[row][col] == self._empty_label:
                     board[row][col] = self._enemy_pov_labels.no_move
-        
+
         return board
 
     def _create_empty_board(self) -> List[List[str]]:
@@ -272,32 +276,32 @@ class Board:
     @staticmethod
     def print_board(board: List[List[str]]) -> None:
         board_size = len(board)
-        
+
         # Print rows
         for row in range(board_size):
             for col in range(board_size):
                 print(f" {board[row][col]} ", end="")
                 print("|", end="")  # Separate cells with |
             print()  # Move to the next line after printing the row
-    
+
     def place_ship(self, *coordinates: List[Tuple[int, int]]) -> None:
         """Place a ship on a board."""
         # Check if player can still place a ship based on the board & ship size constraints.
         if len(self.ships) > self.board_size:
             raise BoardException("Cannot place another ship on the board.")
-        
+
         # Check if there's an invalid cell/coordinate to place a ship.
         for row, col in coordinates:
             if row < 0 or row >= self.board_size or col < 0 or col >= self.board_size:
                 raise BoardException(f"Invalid cell to place a ship: ({row}, {col})")
-        
+
         # Check if a cell is already occupied.
         if not all(not self._is_cell_occupied(*cell) for cell in coordinates):
             raise BoardException("Some of the given cells are already occupied.")
-        
+
         # Create a New Ship
         new_ship = Ship(coordinates)
-                
+
         # Add the ship to the list
         self.ships.append(new_ship)
 
@@ -313,9 +317,9 @@ class Board:
         return None
 
     def enemy_move(self, row: int, col: int) -> None:
-        """Returns True if the given enemy's move hits a ship cell. Otherwise False for missed."""
+        """Returns True if the given enemy's move hits a ship cell. Otherwise, False for missed."""
         ship: None | Ship = self.which_ship(row, col)
-        
+
         if ship:
             # Update states in the ship
             ship.hit_ship(row, col)
@@ -328,120 +332,5 @@ def generate_random_attack_move(board: Board):
     return random.choice(board.valid_moves)
 
 
-class Player:
-    def __init__(self, player_name: str, board_size: int, **kwargs):
-        self.name = player_name
-        self.board = Board(board_size, **kwargs)
-    
-    def attack(self, row: int, col: int, enemy_board: Board) -> None:
-        enemy_board.enemy_move(row, col)
-
-
-class RandomPlayer(Player):
-    def __init__(self, board_size, **kwargs):
-        super().__init__("Random Bot", board_size, **kwargs)
-    
-    def attack(self, enemy_board: Board) -> None:
-        rnd_attack_move = random.choice(enemy_board.valid_moves)
-        super().attack(rnd_attack_move[0], rnd_attack_move[1], enemy_board)
-
-
-class Game:
-    
-    MAX_BOARD_SIZE = 15
-    MIN_BOARD_SIZE = 5
-    
-    def __init__(self, board_size: int = 5):
-        self.board_size = board_size
-        
-        self.players: List[Player] = []
-        self._current_player: None | Player = None
-    
-    @property
-    def current_player(self) -> None | Player:
-        return self._current_player
-    
-    def add_player(self, player: Player) -> None:
-        if len(self.players) == 2:
-            raise GameException("There are 2 players already.")
-        self.players.append(player)
-    
-    def _update_player(self) -> None:
-        self._current_player = [player for player in self.players if player.name != self.current_player.name][0]
-    
-    def get_other_player(self) -> Player:
-        return [player for player in self.players if player.name != self.current_player.name][0]
-    
-    def run_cli_game(self):
-        
-        print("========== Welcome to Battleship Game! ==========")
-        # Prompt user for board size
-        while True:
-            try:
-                board_size = input("Please Enter the Board Size (>= 5) >>> ")
-                self.board_size = int(board_size)
-                
-                if self.board_size > self.MAX_BOARD_SIZE or self.board_size < self.MIN_BOARD_SIZE:
-                    print(f"The given board size {self.board_size} is invalid! Please try again.")
-                    print(f"Board must be between {self.MIN_BOARD_SIZE} or {self.MAX_BOARD_SIZE}\n")
-                    continue
-                break
-            except ValueError:
-                print("Invalid Size! Please try again.\n")
-                continue
-            except IndexError:
-                print("Invalid Size! Please try again.\n")
-                continue
-        
-        # Prompt user (player 1) for Name
-        while True:
-            player_name = input("Please Enter your Name >>> ")
-            new_player = Player(player_name, self.board_size)
-            self.add_player(new_player)
-            break
-        
-        # Add Random Player
-        self.add_player(RandomPlayer(self.board_size))
-        
-        # Generate Random Ship positions for human and random players
-        for player in self.players:
-            # Generate Random Ships with random arrangement
-            ships: List[Ship] = generate_random_ships_arrangements(self.board_size)
-            for ship in ships:
-                player.board.place_ship(*ship.coordinates)
-        
-        # Generate Random Initial Player.
-        self._current_player = random.choice(self.players)
-        
-        while True:
-            try:
-                if self.current_player.name != "Random Bot":
-                    # Prompt User for Attack Cell Coordinate
-                    attack_cell = input("Please Enter you attack coordinates (e.g. 2 4) >>> ")
-                    attack_cell = attack_cell.split(' ')
-                    if len(attack_cell) != 2:
-                        print("Please enter a valid attack coordinate!\n")
-                        continue
-                    
-                    row, col = map(int, attack_cell)
-                    
-                    enemy_board = self.get_other_player().board
-                    self.current_player.attack(row, col, enemy_board)
-                    Board.print_board(enemy_board.get_board_for_enemy())
-                    print("My Board: ")
-                    Board.print_board(self.current_player.board.get_board_for_player())
-                else:
-                    # Make the Random Bot Attack
-                    enemy_board = self.get_other_player().board
-                    self.current_player.attack(enemy_board)
-                
-                self._update_player()
-            except Exception as e:
-                print(e)
-                print()
-                continue
-
-
 if __name__ == "__main__":
-    game = Game()
-    game.run_cli_game()
+    pass
