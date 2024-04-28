@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from typing import Tuple, List, FrozenSet
 from dataclasses import dataclass
 import random
@@ -143,6 +144,10 @@ def generate_random_ships_arrangements(board_size: int) -> List[Ship]:
         ships.append(ship)
         i -= 1
 
+    n = len(ships)
+    assert (n * (n + 1)) / 2 == len(
+        [tup for ship in ships for tup in ship.coordinates]), "Invalid Mathematical Assumption"
+
     return ships
 
 
@@ -172,7 +177,6 @@ class Board:
             raise BoardException("Invalid given board size. Board size must be 5 to 15.")
 
         self.board_size = board_size
-        self.num_ship = self.board_size - 1  # num_ships = board_size - 1
         self._empty_label = empty_label
 
         self._board = [[self._empty_label for _ in range(self.board_size)] for _ in range(self.board_size)]
@@ -183,12 +187,16 @@ class Board:
 
         self.ships: List[Ship] = []  # List of Ships
 
-        # Keep track of all enemy actions/moves for "Missed" and "No Move". 
+        # Keep track of all enemy actions/moves for "Missed" and "No Move".
         # Hit can be obtained from `hit_cells` property.
         self._enemy_moves = {
             "hit": [],
             "missed": []
         }
+
+    @property
+    def num_of_ships(self):
+        return len(self.ships)
 
     @property
     def dead_ships(self) -> List[Ship]:
@@ -277,18 +285,24 @@ class Board:
     @staticmethod
     def print_board(board: List[List[str]]) -> None:
         board_size = len(board)
+        # Print the Column Numbers for first row (0 to board_size - 1)
+        for col in range(board_size):
+            print(f"   {col}", end="")
+        print()
 
-        # Print rows
         for row in range(board_size):
+            print(f"{row} ", end="")
             for col in range(board_size):
                 print(f" {board[row][col]} ", end="")
-                print("|", end="")  # Separate cells with |
+                if col < board_size - 1:
+                    print("|", end="")  # Separate cells with |
             print()  # Move to the next line after printing the row
+        ...
 
     def place_ship(self, *coordinates: List[Tuple[int, int]]) -> None:
         """Place a ship on a board."""
         # Check if player can still place a ship based on the board & ship size constraints.
-        if len(self.ships) > self.board_size:
+        if self.num_of_ships > self.board_size:
             raise BoardException("Cannot place another ship on the board.")
 
         # Check if there's an invalid cell/coordinate to place a ship.
@@ -329,10 +343,6 @@ class Board:
             self._enemy_moves["missed"].append((row, col))
 
 
-def generate_random_attack_move(board: Board):
-    return random.choice(board.valid_moves)
-
-
 @dataclass
 class Player:
     name: str
@@ -346,12 +356,313 @@ class Player:
         for ship in ships:
             self.enemy_board.place_ship(*ship.coordinates)
 
+    def place_ship(self, ship_coordinates):
+        # Remind that this is for the enemy's ships not this player.
+        self.enemy_board.place_ship(*ship_coordinates)
+
 
 class RandomPlayer(Player):
     def random_attack(self):
         # tup = random.choice(self.enemy_board.valid_moves)  # Generate random coordinate
         tup = random.choice([(i, j) for i, j in self.enemy_board.generate_valid_moves()])  # Generate random coordinate
         self.attack(*tup)
+
+
+class Game(ABC):
+    MAX_BOARD_SIZE = 15
+    MIN_BOARD_SIZE = 5
+
+    def __init__(self,
+                 board_size: int,
+                 player_1_name: str,
+                 player_2_name: str
+                 ):
+
+        # To-Do for Implementer:
+        # - Initialize first player mover (i.e. self._current_player).
+        # - Implement place_ships() and use it to place the ships on the Board for each player.
+        # - Implement the game's main loop. This can be used for different UIs.
+
+        self.player_1: Player = Player(player_1_name, Board(board_size))
+        self.player_2: Player = Player(player_2_name, Board(board_size))
+        self.board_size: int = board_size
+
+        self._current_player: Player | None = None
+
+    @property
+    def current_player(self) -> Player | None:
+        return self._current_player
+
+    @current_player.setter
+    def current_player(self, value):
+        self._current_player = value
+
+    @property
+    def previous_player(self) -> Player | None:
+        return self.player_1 if self._current_player.name == self.player_2.name else self.player_2
+
+    def get_winner(self) -> Player | None:
+        if self.player_1.enemy_board.is_player_lost:
+            return self.player_1
+        elif self.player_2.enemy_board.is_player_lost:
+            return self.player_2
+        else:
+            return None
+
+    def update_player(self) -> None:
+        self._current_player = self.player_1 if self._current_player.name == self.player_2.name else self.player_2
+
+    def make_current_player_attack(self, row: int, col: int) -> Player | None:
+        if self.current_player is None:
+            raise ValueError('First Player to move was not initialized.')
+
+        # Make Current Player Attack. Note that exceptions will be thrown from .attack() method
+        self.current_player.attack(row, col)
+
+        # Check if there is a Winner
+        winner_or_none = self.get_winner()
+        if winner_or_none is not None:
+            return winner_or_none
+
+        # Update the Current Player
+        self.update_player()
+
+    @abstractmethod
+    def run(self, *args, **kwargs):
+        pass
+
+    @abstractmethod
+    def place_ships(self, *args, **kwargs):
+        pass
+
+
+class PromptMixin:
+    @staticmethod
+    def prompt_board_size(prompt_message: str,
+                          error_message: str,
+                          min_board_size: int = 5,
+                          max_board_size: int = 15
+                          ) -> int:
+
+        while True:
+            try:
+                board_size = int(input(prompt_message))
+
+                if board_size < min_board_size or board_size > max_board_size:
+                    print(error_message)
+                    continue
+
+                return board_size
+
+            except ValueError:
+                print(error_message)
+                continue
+
+    @staticmethod
+    def prompt_name(prompt_message: str, error_message: str = 'Invalid Input! Please try again.\n') -> str:
+        while True:
+            input_name = input(prompt_message)
+
+            # Check for invalid user input
+            if input_name.strip() == "":
+                print(error_message)
+                continue
+
+            return input_name
+
+    @staticmethod
+    def boolean_prompt(prompt_message: str,
+                       error_message: str = 'Invalid Input! Please try again.\n',
+                       true_str: str = 'yes',
+                       false_str: str = 'no') -> bool:
+        while True:
+            bool_inp = input(prompt_message)
+
+            # Check for Invalid User Input
+            if bool_inp.lower() not in [true_str.lower(), false_str.lower()]:
+                print(error_message)
+                continue
+
+            return bool_inp.lower() == true_str.lower()
+
+    @staticmethod
+    def attack_prompt(board_size: int,
+                      prompt_message: str,
+                      error_message: str = 'Invalid Target! Pleas try again.',
+                      ) -> Tuple[int, ...]:
+        while True:
+            attack_input = input(prompt_message)
+
+            if len(attack_input.split()) != 2:
+                print(error_message)
+                continue
+
+            try:
+                attack_tuple = tuple(map(int, attack_input.split()))
+
+                invalid_conditions = \
+                    attack_tuple[0] < 0 or \
+                    attack_tuple[0] >= board_size or \
+                    attack_tuple[1] < 0 or \
+                    attack_tuple[1] >= board_size
+
+                if invalid_conditions:
+                    print(f'Attack Coordinates must be in [0, {board_size})\n' +
+                          error_message)
+                    continue
+
+                return attack_tuple
+            except ValueError:
+                print(error_message)
+                continue
+
+
+class PrintMixin:
+    @staticmethod
+    def print_player_board(player: Player, other_player: Player) -> None:
+        player_board = other_player.enemy_board
+        other_player_board = player.enemy_board
+
+        player_board_state = player_board.get_board_for_player()
+        player_hit_or_miss_state = other_player_board.get_board_for_enemy()
+
+        print(f"{player.name} Battlefield Situation")
+        Board.print_board(player_board_state)
+        print()
+        print(f"{player.name} Targets")
+        Board.print_board(player_hit_or_miss_state)
+
+        print("\n")
+
+
+class UtilsMixin:
+    @staticmethod
+    def alternate_tuples(list1, list2):
+        result = []
+        max_len = max(len(list1), len(list2))
+
+        for i in range(max_len):
+            if i < len(list1):
+                result.append(list1[i])
+            if i < len(list2):
+                result.append(list2[i])
+
+        return result
+
+
+class AlternatingGame(Game, UtilsMixin, PrintMixin):
+    def shuffle(self) -> List[Tuple[int, int]]:
+        # Given the board size, generate random unique sequence of move for one player until all board
+        # cells are generated.
+
+        out_list = [(i, j) for i in range(self.board_size) for j in range(self.board_size)]
+        random.shuffle(out_list)  # In-place modification for shuffle
+        return out_list
+
+    def run(self,
+            player_1_moves=None,
+            player_2_moves=None,
+            player_1_first=True
+            ):
+
+        # Use user given attack moves or generate random attack moves
+        player_1_moves_ = player_1_moves or self.shuffle()
+        player_2_moves_ = player_2_moves or self.shuffle()
+
+        # Check if player 1 move first
+        if player_1_first:
+            self.current_player = self.player_1
+            all_moves = self.alternate_tuples(player_1_moves_, player_2_moves_)
+        else:
+
+            all_moves = self.alternate_tuples(player_2_moves_, player_1_moves_)
+            self.current_player = self.player_2
+
+        print(f'{self.current_player.name} move first.')
+
+        # Place the Ships on Boards
+        self.place_ships()
+
+        # Start Placing the alternative moves of the players
+        for tup in all_moves:
+            winner_or_none = self.make_current_player_attack(*tup)
+            self.print_player_board(self.previous_player, self.current_player)
+
+            if winner_or_none is not None:
+                print(f'Player {winner_or_none.name} Won!!!')
+
+                if winner_or_none == self.player_1:
+                    self.print_player_board(self.player_1, self.player_2)
+                else:
+                    self.print_player_board(self.player_2, self.player_1)
+
+                break
+
+    def place_ships(self):
+        # Use Random Positions for the Ships on the Board for each player
+        self.player_1.generate_random_ship_arrangements()
+        self.player_2.generate_random_ship_arrangements()
+
+
+class CLIGameV2(Game, PrintMixin, PromptMixin):
+    def __init__(self):
+        board_size = self.prompt_board_size(f'Enter Board Size >>> ',
+                                            'Invalid Board Size Input.\n')
+        player_1_name = self.prompt_name("Please Enter the Name for Player 1 >>> ")
+        self.play_with_random_player = self.boolean_prompt('Do you want to play with a bot? (yes/no) >>> ')
+        player_2_name = self.prompt_name("Please Enter the Name for Player 2 >>> ")
+
+        super().__init__(board_size, player_1_name, player_2_name)
+
+        # Place the Ships Randomly
+        self.place_ships()
+
+        # Select the First Mover Randomly
+        self.current_player = random.choice([self.player_1, self.player_2])
+
+    def run(self):
+        while True:
+            try:
+                # Play with a Bot
+                if self.play_with_random_player:  # Assume that Player 2 is the Random Bot.
+                    # Check if current player is player_2
+                    if self.current_player == self.player_2:
+                        # Make Random Valid Attack
+                        valid_moves = [move for move in self.current_player.enemy_board.generate_valid_moves()]
+                        attack_coordinate = random.choice(valid_moves)
+                        winner_or_none = self.make_current_player_attack(*attack_coordinate)
+
+                    # Player 1's move
+                    else:
+                        attack_coordinate = \
+                            self.attack_prompt(self.board_size,
+                                               f'Please Enter the Attack Coordinates Admiral {self.current_player.name} >>> ',
+                                               'Invalid Attack Coordinate')
+                        winner_or_none = self.make_current_player_attack(*attack_coordinate)
+
+                        # Print Board State. When we make a move, it will automatically update for the next player
+                        self.print_player_board(self.previous_player, self.current_player)
+                else:
+                    attack_coordinate = \
+                        self.attack_prompt(self.board_size,
+                                           f'Please Enter the Attack Coordinates Admiral {self.current_player.name} >>> ',
+                                           'Invalid Attack Coordinate')
+
+                    winner_or_none = self.make_current_player_attack(*attack_coordinate)
+
+                    # Print Board State. When we make a move, it will automatically update for the next player
+                    self.print_player_board(self.previous_player, self.current_player)
+
+                if winner_or_none is not None:
+                    print(f'Player {winner_or_none.name} won the war!!!')
+                    break
+            except Exception as e:
+                print(e)
+                continue
+
+    def place_ships(self):
+        self.player_1.generate_random_ship_arrangements()
+        self.player_2.generate_random_ship_arrangements()
 
 
 class CLIGame:
@@ -530,4 +841,10 @@ class CLIGame:
 
 
 if __name__ == "__main__":
-    CLIGame()
+    # CLIGame()
+
+    # game = CLIGameV2()
+    # game.run()
+
+    game = AlternatingGame(5, "Player 1", "Player 2")
+    game.run(player_1_first=False)
