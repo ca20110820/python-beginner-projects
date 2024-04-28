@@ -221,7 +221,8 @@ class Board:
         for i in range(self.board_size):
             for j in range(self.board_size):
                 if board[i][j] == self._enemy_pov_labels.no_move:
-                    yield board[i][j]
+                    # yield board[i][j]
+                    yield i, j
 
     def get_board_for_player(self) -> List[List[str]]:
         """Gets the Board States from Player's POV"""
@@ -320,7 +321,7 @@ class Board:
         """Returns True if the given enemy's move hits a ship cell. Otherwise, False for missed."""
         ship: None | Ship = self.which_ship(row, col)
 
-        if ship:
+        if isinstance(ship, Ship):
             # Update states in the ship
             ship.hit_ship(row, col)
             self._enemy_moves["hit"].append((row, col))
@@ -332,5 +333,201 @@ def generate_random_attack_move(board: Board):
     return random.choice(board.valid_moves)
 
 
+@dataclass
+class Player:
+    name: str
+    enemy_board: Board
+
+    def attack(self, row: int, col: int):
+        self.enemy_board.enemy_move(row, col)
+
+    def generate_random_ship_arrangements(self) -> None:
+        ships = generate_random_ships_arrangements(self.enemy_board.board_size)
+        for ship in ships:
+            self.enemy_board.place_ship(*ship.coordinates)
+
+
+class RandomPlayer(Player):
+    def random_attack(self):
+        # tup = random.choice(self.enemy_board.valid_moves)  # Generate random coordinate
+        tup = random.choice([(i, j) for i, j in self.enemy_board.generate_valid_moves()])  # Generate random coordinate
+        self.attack(*tup)
+
+
+class CLIGame:
+    MAX_BOARD_SIZE = 15
+    MIN_BOARD_SIZE = 5
+
+    def __init__(self):
+        self._current_player = None
+        self.player_1: Player | None = None
+        self.player_2: Player | None = None
+        self.board_size: int | None = None
+
+        self.run()
+
+    @property
+    def current_player(self) -> Player | RandomPlayer | None:
+        return self._current_player
+
+    @property
+    def previous_player(self) -> Player | RandomPlayer | None:
+        return self.player_1 if self._current_player.name == self.player_2.name else self.player_2
+
+    def update_player(self) -> None:
+        self._current_player = self.player_1 if self._current_player.name == self.player_2.name else self.player_2
+
+    def print_current_player_board(self) -> None:
+        current_player_board = self.previous_player.enemy_board
+        other_player_board = self.current_player.enemy_board
+
+        current_player_board_state = current_player_board.get_board_for_player()
+        current_player_hit_or_miss_state = other_player_board.get_board_for_enemy()
+
+        print(f"{self.current_player.name} Battlefield Situation")
+        Board.print_board(current_player_board_state)
+        print()
+        print(f"{self.current_player.name} Targets")
+        Board.print_board(current_player_hit_or_miss_state)
+
+        print("\n")
+
+    @staticmethod
+    def _prompt_name(prompt_message: str, error_message: str = 'Invalid Input! Please try again.\n') -> str:
+        while True:
+            input_name = input(prompt_message)
+
+            # Check for invalid user input
+            if input_name.strip() == "":
+                print(error_message)
+                continue
+
+            return input_name
+
+    @staticmethod
+    def _boolean_prompt(prompt_message: str,
+                        error_message: str = 'Invalid Input! Please try again.\n',
+                        true_str: str = 'yes',
+                        false_str: str = 'no') -> bool:
+        while True:
+            bool_inp = input(prompt_message)
+
+            # Check for Invalid User Input
+            if bool_inp.lower() not in [true_str.lower(), false_str.lower()]:
+                print(error_message)
+                continue
+
+            return bool_inp.lower() == true_str.lower()
+
+    def _attack_prompt(self,
+                       prompt_message: str,
+                       error_message: str = 'Invalid Target! Pleas try again.',
+                       ) -> Tuple[int, ...]:
+        while True:
+            attack_input = input(prompt_message)
+
+            if len(attack_input.split()) != 2:
+                print(error_message)
+                continue
+
+            try:
+                attack_tuple = tuple(map(int, attack_input.split()))
+
+                invalid_conditions = \
+                    attack_tuple[0] < 0 or \
+                    attack_tuple[0] >= self.board_size or \
+                    attack_tuple[1] < 0 or \
+                    attack_tuple[1] >= self.board_size
+
+                if invalid_conditions:
+                    print(f'Attack Coordinates must be in [0, {self.board_size})\n' +
+                          error_message)
+                    continue
+
+                return attack_tuple
+            except ValueError:
+                print(error_message)
+                continue
+
+    def get_winner(self) -> Player | RandomPlayer | None:
+        if self.player_1.enemy_board.is_player_lost:
+            return self.player_1
+        elif self.player_2.enemy_board.is_player_lost:
+            return self.player_2
+        else:
+            return None
+
+    def run(self):
+        print("======================== Welcome to Battleships ========================")
+        print()
+
+        # Prompt User for Board Size
+        while True:
+            try:
+                self.board_size = int(input("Enter the Board Size (>= 5) >>> "))
+
+                # Check given integer board size
+                if self.board_size < self.MIN_BOARD_SIZE or self.board_size > self.MAX_BOARD_SIZE:
+                    print("The Board Size must be in [5, 15]\n")
+                    continue
+
+                break
+            except ValueError:
+                print("Invalid Input!\n")
+                continue
+
+        player_1_name = self._prompt_name("Please Enter the Name for Player 1 >>> ")
+        play_with_random_player = self._boolean_prompt('Do you want to play with a bot? (yes/no) >>> ')
+        player_2_name = self._prompt_name("Please Enter the Name for Player 2 >>> ")
+
+        # Instantiate Players
+        self.player_1 = Player(player_1_name, Board(self.board_size))
+
+        # Check if User wants to play with Random Bot
+        if play_with_random_player:
+            self.player_2 = RandomPlayer(player_2_name, Board(self.board_size))
+        else:
+            self.player_2 = Player(player_2_name, Board(self.board_size))
+
+        # Generate Random Ship Arrange Method for both players
+        self.player_1.generate_random_ship_arrangements()  # Arrangements for Player 2
+        self.player_2.generate_random_ship_arrangements()  # Arrangements for Player 1
+
+        # Randomly Select Initial Player to make a move
+        self._current_player: Player = random.choice([self.player_1, self.player_2])
+
+        # Run the Main Loop
+        while True:
+            # Current Player is not a Random Bot
+            if not isinstance(self.current_player, RandomPlayer):
+                try:
+                    attack_tuple = self._attack_prompt(
+                        f'Enter your next attack coordinate admiral {self.current_player.name} >>> ')
+
+                    # Make the attack
+                    self.current_player.attack(*attack_tuple)
+
+                    # Print State for Current (Human) Player
+                    self.print_current_player_board()
+                except InvalidHitMoveException as e:
+                    print(e)
+                    continue
+            else:
+                assert isinstance(self.current_player, RandomPlayer), "Current Player is not a Random Player."
+                print('Bot is attacking ...')
+                self.current_player.random_attack()
+
+            # Check if there is a winner.
+            if isinstance(self.get_winner(), (Player, RandomPlayer)):
+                break
+
+            # Update the Current Player
+            self.update_player()
+
+        # Print the Results
+        winner = self.get_winner()
+        print(f'Player {winner.name} Wins!!!')
+
+
 if __name__ == "__main__":
-    pass
+    CLIGame()
