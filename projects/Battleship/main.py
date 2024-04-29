@@ -286,16 +286,34 @@ class Board:
     def print_board(board: List[List[str]]) -> None:
         board_size = len(board)
         # Print the Column Numbers for first row (0 to board_size - 1)
+        print(f" ", end="")  # Print the Initial Spaces
         for col in range(board_size):
-            print(f"   {col}", end="")
-        print()
+            if col > 9:
+                print(f"  {col}", end="")  # For 0 to 9
+            else:
+                print(f"   {col}", end="")  # For 10 to 14
+        print()  # new line
 
         for row in range(board_size):
-            print(f"{row} ", end="")
+            if row > 9:
+                print(f"{row} ", end="")
+            else:
+                print(f" {row} ", end="")
             for col in range(board_size):
-                print(f" {board[row][col]} ", end="")
+                if col > 9:
+                    # if row > 9:
+                    #     print(f" {board[row][col]}", end="")
+                    # else:
+                    #     print(f" {board[row][col]}", end="")
+                    print(f" {board[row][col]}", end="")
+                else:
+                    print(f" {board[row][col]} ", end="")
+
                 if col < board_size - 1:
-                    print("|", end="")  # Separate cells with |
+                    if col > 9:
+                        print(" |", end="")  # Separate cells with |
+                    else:
+                        print("|", end="")  # Separate cells with |
             print()  # Move to the next line after printing the row
 
     def place_ship(self, coordinates: List[Tuple[int, int]]) -> None:
@@ -635,10 +653,12 @@ class CLIGame(Game, PrintMixin, PromptMixin):
         super().__init__(board_size, player_1_name, player_2_name)
 
         # Place the Ships Randomly
+        print('Randomly placing ship ...')
         self.place_ships()
 
         # Select the First Mover Randomly
         self.current_player = random.choice([self.player_1, self.player_2])
+        print(f'Player {self.current_player.name} moves first.')
 
     def run(self):
         while True:
@@ -650,6 +670,7 @@ class CLIGame(Game, PrintMixin, PromptMixin):
                         # Make Random Valid Attack
                         valid_moves = [move for move in self.current_player.enemy_board.generate_valid_moves()]
                         attack_coordinate = random.choice(valid_moves)
+                        print(f'{self.player_2.name} (Bot) is attacking on {attack_coordinate} ...\n\n')
                         winner_or_none = self.make_current_player_attack(*attack_coordinate)
 
                     # Player 1's move
@@ -685,17 +706,17 @@ class CLIGame(Game, PrintMixin, PromptMixin):
         self.player_2.generate_random_ship_arrangements()
 
 
-if __name__ == "__main__":
+def sample_alternating_game():
     # Sample
-    PLAYER_1_MOVES = [(3, 1), (0, 1), (0, 0), (4, 0), (1, 1), (0, 3), (3, 0), (1, 0), (1, 2), (4, 3), (3, 2),
+    player_1_moves = [(3, 1), (0, 1), (0, 0), (4, 0), (1, 1), (0, 3), (3, 0), (1, 0), (1, 2), (4, 3), (3, 2),
                       (1, 4), (0, 4), (2, 4), (1, 3), (4, 2), (3, 3), (0, 2), (2, 2), (3, 4), (2, 1), (4, 4),
                       (2, 3), (4, 1), (2, 0)]
 
-    PLAYER_2_MOVES = [(0, 4), (0, 2), (3, 4), (1, 0), (4, 0), (1, 3), (2, 1), (1, 2), (2, 0), (2, 3), (3, 1),
+    player_2_moves = [(0, 4), (0, 2), (3, 4), (1, 0), (4, 0), (1, 3), (2, 1), (1, 2), (2, 0), (2, 3), (3, 1),
                       (0, 3), (2, 4), (0, 0), (1, 4), (2, 2), (0, 1), (1, 1), (3, 3), (4, 3), (3, 2), (3, 0),
                       (4, 1), (4, 4), (4, 2)]
 
-    PLAYER_1_SHIPS = [
+    player_1_ships = [
         [(2, 0), (2, 1), (2, 2), (2, 3), (2, 4)],
         [(3, 1), (3, 2), (3, 3), (3, 4)],
         [(4, 2), (4, 3), (4, 4)],
@@ -703,7 +724,7 @@ if __name__ == "__main__":
         [(3, 0)]
     ]
 
-    PLAYER_2_SHIPS = [
+    player_2_ships = [
         [(0, 2), (1, 2), (2, 2), (3, 2), (4, 2)],
         [(0, 1), (1, 1), (2, 1), (3, 1)],
         [(2, 3), (3, 3), (4, 3)],
@@ -712,7 +733,16 @@ if __name__ == "__main__":
     ]
 
     game = AlternatingGame(5, "Player 1", "Player 2")
-    game.set_moves(PLAYER_1_MOVES, PLAYER_2_MOVES)
-    game.place_ships('Player 1', PLAYER_1_SHIPS)
-    game.place_ships('Player 2', PLAYER_2_SHIPS)
+    game.set_moves(player_1_moves, player_2_moves)
+    game.place_ships('Player 1', player_1_ships)
+    game.place_ships('Player 2', player_2_ships)
     game.run('Player 2')
+
+
+def sample_cli_game():
+    game = CLIGame()
+    game.run()
+
+
+if __name__ == "__main__":
+    sample_cli_game()
