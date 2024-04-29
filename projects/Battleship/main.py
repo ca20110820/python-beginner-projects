@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Tuple, List, FrozenSet
+from typing import Tuple, List, Set
 from dataclasses import dataclass
 import random
 
@@ -29,7 +29,7 @@ class Ship:
         self.coordinates = coordinates
         self._check_ship_coordinates()
 
-        self._un_hit_coordinates: FrozenSet[Tuple[int, int]] = {tup for tup in self.coordinates}
+        self._un_hit_coordinates: Set[Tuple[int, int]] = {tup for tup in self.coordinates}
 
     @property
     def is_destroyed(self) -> bool:
@@ -297,9 +297,8 @@ class Board:
                 if col < board_size - 1:
                     print("|", end="")  # Separate cells with |
             print()  # Move to the next line after printing the row
-        ...
 
-    def place_ship(self, *coordinates: List[Tuple[int, int]]) -> None:
+    def place_ship(self, coordinates: List[Tuple[int, int]]) -> None:
         """Place a ship on a board."""
         # Check if player can still place a ship based on the board & ship size constraints.
         if self.num_of_ships > self.board_size:
@@ -354,18 +353,11 @@ class Player:
     def generate_random_ship_arrangements(self) -> None:
         ships = generate_random_ships_arrangements(self.enemy_board.board_size)
         for ship in ships:
-            self.enemy_board.place_ship(*ship.coordinates)
+            self.enemy_board.place_ship(ship.coordinates)
 
     def place_ship(self, ship_coordinates):
         # Remind that this is for the enemy's ships not this player.
-        self.enemy_board.place_ship(*ship_coordinates)
-
-
-class RandomPlayer(Player):
-    def random_attack(self):
-        # tup = random.choice(self.enemy_board.valid_moves)  # Generate random coordinate
-        tup = random.choice([(i, j) for i, j in self.enemy_board.generate_valid_moves()])  # Generate random coordinate
-        self.attack(*tup)
+        self.enemy_board.place_ship(ship_coordinates)
 
 
 class Game(ABC):
@@ -549,62 +541,90 @@ class UtilsMixin:
 
         return result
 
-
-class AlternatingGame(Game, UtilsMixin, PrintMixin):
-    def shuffle(self) -> List[Tuple[int, int]]:
+    @staticmethod
+    def shuffle(board_size) -> List[Tuple[int, int]]:
         # Given the board size, generate random unique sequence of move for one player until all board
         # cells are generated.
-
-        out_list = [(i, j) for i in range(self.board_size) for j in range(self.board_size)]
+        out_list = [(i, j) for i in range(board_size) for j in range(board_size)]
         random.shuffle(out_list)  # In-place modification for shuffle
         return out_list
 
-    def run(self,
-            player_1_moves=None,
-            player_2_moves=None,
-            player_1_first=True
-            ):
 
-        # Use user given attack moves or generate random attack moves
-        player_1_moves_ = player_1_moves or self.shuffle()
-        player_2_moves_ = player_2_moves or self.shuffle()
+class AlternatingGame(Game, UtilsMixin, PrintMixin):
+    """Battleship Game with given alternative moves
 
-        # Check if player 1 move first
-        if player_1_first:
-            self.current_player = self.player_1
-            all_moves = self.alternate_tuples(player_1_moves_, player_2_moves_)
-        else:
+    Ad-hoc Setup
+    ------------
+    game = AlternatingGame(...)
+    game.place_ships("<player_1>", [[(...), (...), ...], [(...), (...), ...], ...])
+    game.place_ships("<player_2>", [[(...), (...), ...], [(...), (...), ...], ...])
+    game.set_moves([(...), (...), ...], [(...), (...), ...])
+    game.run(...)
+    """
 
-            all_moves = self.alternate_tuples(player_2_moves_, player_1_moves_)
-            self.current_player = self.player_2
+    PLAYER_1_MOVES = None
+    PLAYER_2_MOVES = None
 
-        print(f'{self.current_player.name} move first.')
+    def set_moves(self, player_1_moves: List[Tuple[int, int]], player_2_moves: List[Tuple[int, int]]) -> None:
+        if self.PLAYER_1_MOVES is not None or self.PLAYER_2_MOVES is not None:
+            raise ValueError(f'The moves for {self.player_1.name} and {self.player_2.name} are already set.')
 
-        # Place the Ships on Boards
-        self.place_ships()
+        # Check the validity of the given moves
+        assert len(player_1_moves) == self.board_size ** 2, f'The number of moves must be {self.board_size ** 2}'
+        assert len(player_2_moves) == self.board_size ** 2, f'The number of moves must be {self.board_size ** 2}'
 
-        # Start Placing the alternative moves of the players
-        for tup in all_moves:
-            winner_or_none = self.make_current_player_attack(*tup)
-            self.print_player_board(self.previous_player, self.current_player)
+        # Check for Duplicates and Out-of-Bound
+        def all_cells_():
+            return [(i, j) for i in range(self.board_size) for j in range(self.board_size)]
 
-            if winner_or_none is not None:
-                print(f'Player {winner_or_none.name} Won!!!')
+        for player_moves in [player_1_moves, player_2_moves]:
+            all_cells = all_cells_()
+            for cell in player_moves:
+                if cell not in all_cells:
+                    raise ValueError(f'The cell {cell} is invalid.')
+                all_cells.remove(cell)
+            if len(all_cells) != 0:
+                raise ValueError('There may be duplicates in the given moves.')
 
-                if winner_or_none == self.player_1:
-                    self.print_player_board(self.player_1, self.player_2)
-                else:
-                    self.print_player_board(self.player_2, self.player_1)
+        self.PLAYER_1_MOVES = player_1_moves
+        self.PLAYER_2_MOVES = player_2_moves
 
-                break
+    def run(self, initial_player_name: str):
+        if initial_player_name not in [self.player_1.name, self.player_2.name]:
+            raise ValueError(f'The given player "{initial_player_name}" does not belong to this Game.')
 
-    def place_ships(self):
-        # Use Random Positions for the Ships on the Board for each player
-        self.player_1.generate_random_ship_arrangements()
-        self.player_2.generate_random_ship_arrangements()
+        self.current_player = self.player_1 if initial_player_name == self.player_1.name else self.player_2
+
+        winner_or_none = self.get_winner()
+        while winner_or_none is None:  # Stop the loop when there is a winner
+            move = None
+            if self.current_player == self.player_1:
+                move = self.PLAYER_1_MOVES.pop(0)
+            elif self.current_player == self.player_2:
+                move = self.PLAYER_2_MOVES.pop(0)
+
+            assert move is not None, "The move was not updated."
+
+            self.make_current_player_attack(*move)
+            winner_or_none = self.get_winner()
+
+        print('Winner:', winner_or_none.name)
+
+    def place_ships(self, player_name: str, ships_coordinates: List[List[Tuple[int, int]]]) -> None:
+        if player_name not in [self.player_1.name, self.player_2.name]:
+            raise ValueError('The given player does not belong to this ConcreteGame.')
+
+        if player_name == self.player_1.name:
+            for ship_coordinates in ships_coordinates:
+                # Use player_2's enemy_board to place the ships for player_1
+                self.player_2.place_ship(ship_coordinates)
+        elif player_name == self.player_2.name:
+            for ship_coordinates in ships_coordinates:
+                # Use player_1's enemy_board to place the ships for player_2
+                self.player_1.place_ship(ship_coordinates)
 
 
-class CLIGameV2(Game, PrintMixin, PromptMixin):
+class CLIGame(Game, PrintMixin, PromptMixin):
     def __init__(self):
         board_size = self.prompt_board_size(f'Enter Board Size >>> ',
                                             'Invalid Board Size Input.\n')
@@ -665,186 +685,34 @@ class CLIGameV2(Game, PrintMixin, PromptMixin):
         self.player_2.generate_random_ship_arrangements()
 
 
-class CLIGame:
-    MAX_BOARD_SIZE = 15
-    MIN_BOARD_SIZE = 5
-
-    def __init__(self):
-        self._current_player = None
-        self.player_1: Player | None = None
-        self.player_2: Player | None = None
-        self.board_size: int | None = None
-
-        self.run()
-
-    @property
-    def current_player(self) -> Player | RandomPlayer | None:
-        return self._current_player
-
-    @property
-    def previous_player(self) -> Player | RandomPlayer | None:
-        return self.player_1 if self._current_player.name == self.player_2.name else self.player_2
-
-    def update_player(self) -> None:
-        self._current_player = self.player_1 if self._current_player.name == self.player_2.name else self.player_2
-
-    def print_current_player_board(self) -> None:
-        current_player_board = self.previous_player.enemy_board
-        other_player_board = self.current_player.enemy_board
-
-        current_player_board_state = current_player_board.get_board_for_player()
-        current_player_hit_or_miss_state = other_player_board.get_board_for_enemy()
-
-        print(f"{self.current_player.name} Battlefield Situation")
-        Board.print_board(current_player_board_state)
-        print()
-        print(f"{self.current_player.name} Targets")
-        Board.print_board(current_player_hit_or_miss_state)
-
-        print("\n")
-
-    @staticmethod
-    def _prompt_name(prompt_message: str, error_message: str = 'Invalid Input! Please try again.\n') -> str:
-        while True:
-            input_name = input(prompt_message)
-
-            # Check for invalid user input
-            if input_name.strip() == "":
-                print(error_message)
-                continue
-
-            return input_name
-
-    @staticmethod
-    def _boolean_prompt(prompt_message: str,
-                        error_message: str = 'Invalid Input! Please try again.\n',
-                        true_str: str = 'yes',
-                        false_str: str = 'no') -> bool:
-        while True:
-            bool_inp = input(prompt_message)
-
-            # Check for Invalid User Input
-            if bool_inp.lower() not in [true_str.lower(), false_str.lower()]:
-                print(error_message)
-                continue
-
-            return bool_inp.lower() == true_str.lower()
-
-    def _attack_prompt(self,
-                       prompt_message: str,
-                       error_message: str = 'Invalid Target! Pleas try again.',
-                       ) -> Tuple[int, ...]:
-        while True:
-            attack_input = input(prompt_message)
-
-            if len(attack_input.split()) != 2:
-                print(error_message)
-                continue
-
-            try:
-                attack_tuple = tuple(map(int, attack_input.split()))
-
-                invalid_conditions = \
-                    attack_tuple[0] < 0 or \
-                    attack_tuple[0] >= self.board_size or \
-                    attack_tuple[1] < 0 or \
-                    attack_tuple[1] >= self.board_size
-
-                if invalid_conditions:
-                    print(f'Attack Coordinates must be in [0, {self.board_size})\n' +
-                          error_message)
-                    continue
-
-                return attack_tuple
-            except ValueError:
-                print(error_message)
-                continue
-
-    def get_winner(self) -> Player | RandomPlayer | None:
-        if self.player_1.enemy_board.is_player_lost:
-            return self.player_1
-        elif self.player_2.enemy_board.is_player_lost:
-            return self.player_2
-        else:
-            return None
-
-    def run(self):
-        print("======================== Welcome to Battleships ========================")
-        print()
-
-        # Prompt User for Board Size
-        while True:
-            try:
-                self.board_size = int(input("Enter the Board Size (>= 5) >>> "))
-
-                # Check given integer board size
-                if self.board_size < self.MIN_BOARD_SIZE or self.board_size > self.MAX_BOARD_SIZE:
-                    print("The Board Size must be in [5, 15]\n")
-                    continue
-
-                break
-            except ValueError:
-                print("Invalid Input!\n")
-                continue
-
-        player_1_name = self._prompt_name("Please Enter the Name for Player 1 >>> ")
-        play_with_random_player = self._boolean_prompt('Do you want to play with a bot? (yes/no) >>> ')
-        player_2_name = self._prompt_name("Please Enter the Name for Player 2 >>> ")
-
-        # Instantiate Players
-        self.player_1 = Player(player_1_name, Board(self.board_size))
-
-        # Check if User wants to play with Random Bot
-        if play_with_random_player:
-            self.player_2 = RandomPlayer(player_2_name, Board(self.board_size))
-        else:
-            self.player_2 = Player(player_2_name, Board(self.board_size))
-
-        # Generate Random Ship Arrange Method for both players
-        self.player_1.generate_random_ship_arrangements()  # Arrangements for Player 2
-        self.player_2.generate_random_ship_arrangements()  # Arrangements for Player 1
-
-        # Randomly Select Initial Player to make a move
-        self._current_player: Player = random.choice([self.player_1, self.player_2])
-
-        # Run the Main Loop
-        while True:
-            # Current Player is not a Random Bot
-            if not isinstance(self.current_player, RandomPlayer):
-                try:
-                    attack_tuple = self._attack_prompt(
-                        f'Enter your next attack coordinate admiral {self.current_player.name} >>> ')
-
-                    # Make the attack
-                    self.current_player.attack(*attack_tuple)
-
-                    # Print State for Current (Human) Player
-                    self.print_current_player_board()
-                except InvalidHitMoveException as e:
-                    print(e)
-                    continue
-            else:
-                assert isinstance(self.current_player, RandomPlayer), "Current Player is not a Random Player."
-                print('Bot is attacking ...')
-                self.current_player.random_attack()
-
-            # Check if there is a winner.
-            if isinstance(self.get_winner(), (Player, RandomPlayer)):
-                break
-
-            # Update the Current Player
-            self.update_player()
-
-        # Print the Results
-        winner = self.get_winner()
-        print(f'Player {winner.name} Wins!!!')
-
-
 if __name__ == "__main__":
-    # CLIGame()
+    # Sample
+    PLAYER_1_MOVES = [(3, 1), (0, 1), (0, 0), (4, 0), (1, 1), (0, 3), (3, 0), (1, 0), (1, 2), (4, 3), (3, 2),
+                      (1, 4), (0, 4), (2, 4), (1, 3), (4, 2), (3, 3), (0, 2), (2, 2), (3, 4), (2, 1), (4, 4),
+                      (2, 3), (4, 1), (2, 0)]
 
-    # game = CLIGameV2()
-    # game.run()
+    PLAYER_2_MOVES = [(0, 4), (0, 2), (3, 4), (1, 0), (4, 0), (1, 3), (2, 1), (1, 2), (2, 0), (2, 3), (3, 1),
+                      (0, 3), (2, 4), (0, 0), (1, 4), (2, 2), (0, 1), (1, 1), (3, 3), (4, 3), (3, 2), (3, 0),
+                      (4, 1), (4, 4), (4, 2)]
+
+    PLAYER_1_SHIPS = [
+        [(2, 0), (2, 1), (2, 2), (2, 3), (2, 4)],
+        [(3, 1), (3, 2), (3, 3), (3, 4)],
+        [(4, 2), (4, 3), (4, 4)],
+        [(0, 2), (1, 2)],
+        [(3, 0)]
+    ]
+
+    PLAYER_2_SHIPS = [
+        [(0, 2), (1, 2), (2, 2), (3, 2), (4, 2)],
+        [(0, 1), (1, 1), (2, 1), (3, 1)],
+        [(2, 3), (3, 3), (4, 3)],
+        [(3, 4), (4, 4)],
+        [(3, 0)]
+    ]
 
     game = AlternatingGame(5, "Player 1", "Player 2")
-    game.run(player_1_first=False)
+    game.set_moves(PLAYER_1_MOVES, PLAYER_2_MOVES)
+    game.place_ships('Player 1', PLAYER_1_SHIPS)
+    game.place_ships('Player 2', PLAYER_2_SHIPS)
+    game.run('Player 2')
